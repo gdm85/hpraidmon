@@ -20,50 +20,50 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 package main
 
 import (
-	"io/ioutil"
-	"os"
-	"strings"
 	"fmt"
+	"io/ioutil"
+	"math"
+	"os"
 	"regexp"
 	"strconv"
-	"math"
+	"strings"
 )
 
 type StorageEnclosureProcessor struct {
-	VendorId		string
-	Model			string
-	Expander		uint
-	WWID			string
+	VendorId string
+	Model    string
+	Expander uint
+	WWID     string
 }
 
 type Controller struct {
-	Name			string
-	Type			string
-	Slot			uint
-	SerialNumber	string
-	SEP				StorageEnclosureProcessor
-	Arrays			[]Array
-	CurrentArray	*Array
+	Name         string
+	Type         string
+	Slot         uint
+	SerialNumber string
+	SEP          StorageEnclosureProcessor
+	Arrays       []Array
+	CurrentArray *Array
 }
 
 type Array struct {
-	Id				rune
-	Type			string
-	UnusedSpace		uint64
-	Drives			[]Drive
+	Id          rune
+	Type        string
+	UnusedSpace uint64
+	Drives      []Drive
 }
 
 type Drive struct {
-	Id			string // index or port:box:bay id, might be redundant
-	RaidMode	string
-	Status		string
-	Size		uint64
-	Physical	bool
+	Id       string // index or port:box:bay id, might be redundant
+	RaidMode string
+	Status   string
+	Size     uint64
+	Physical bool
 	// below properties are set only for physical drives
-	Type		string
-	Port		string
-	Box			uint
-	Bay			uint
+	Type string
+	Port string
+	Box  uint
+	Bay  uint
 }
 
 // output-tailored regular expressions
@@ -114,15 +114,15 @@ func (d *Drive) Describe() string {
 		driveType = "logical"
 		mode = d.RaidMode
 	}
-	
+
 	return fmt.Sprintf("%s %s (%s, %s)", driveType, d.Id, mode, convertBytesToHumanReadable(d.Size))
 }
 
-func ControllerParse(s string) (*Controller) {
+func ControllerParse(s string) *Controller {
 	var ctl Controller
-	
+
 	matched := ctlRx.FindStringSubmatch(s)
-	
+
 	ctl.Name = matched[1]
 	ui, err := strconv.ParseUint(matched[2], 10, 32)
 	if err != nil {
@@ -131,7 +131,7 @@ func ControllerParse(s string) (*Controller) {
 	ctl.Slot = uint(ui)
 	ctl.Type = matched[3]
 	ctl.SerialNumber = matched[4]
-	
+
 	return &ctl
 }
 
@@ -141,49 +141,49 @@ func convertHumanReadableToBytes(s string) uint64 {
 		panic("no match for " + s)
 	}
 	n, _ := strconv.ParseFloat(matched[1], 64)
-	
+
 	var mul uint64 = 1
-	switch (matched[5][0]) {
-		case 'E':
-			mul *= 1000
-			fallthrough
-		case 'P':
-			mul *= 1000
-			fallthrough
-		case 'T':
-			mul *= 1000
-			fallthrough
-		case 'G':
-			mul *= 1000
-			fallthrough
-		case 'M':
-			mul *= 1000
-			fallthrough
-		case 'K':
-			mul *= 1000
-		default:
-			panic("Unknown size prefix")
+	switch matched[5][0] {
+	case 'E':
+		mul *= 1000
+		fallthrough
+	case 'P':
+		mul *= 1000
+		fallthrough
+	case 'T':
+		mul *= 1000
+		fallthrough
+	case 'G':
+		mul *= 1000
+		fallthrough
+	case 'M':
+		mul *= 1000
+		fallthrough
+	case 'K':
+		mul *= 1000
+	default:
+		panic("Unknown size prefix")
 	}
-	
+
 	return uint64(n * float64(mul))
 }
 
-func ArrayParse(s string) (*Array) {
+func ArrayParse(s string) *Array {
 	var arr Array
-	
+
 	matched := arrRx.FindStringSubmatch(s)
 	arr.Id = rune(matched[1][0])
 	arr.Type = matched[2]
 	arr.UnusedSpace = convertHumanReadableToBytes(matched[3])
-	
+
 	return &arr
 }
 
-func DriveParse(s string) (*Drive) {
+func DriveParse(s string) *Drive {
 	var d Drive
 	if strings.HasPrefix(s, "logicaldrive") {
 		matched := logRx.FindStringSubmatch(s[len("logicaldrive")+1:])
-		
+
 		d.Id = matched[1]
 		d.Size = convertHumanReadableToBytes(matched[2])
 		d.RaidMode = matched[3]
@@ -191,7 +191,7 @@ func DriveParse(s string) (*Drive) {
 		d.Physical = false
 	} else if strings.HasPrefix(s, "physicaldrive") {
 		matched := physRx.FindStringSubmatch(s[len("physicaldrive")+1:])
-		
+
 		d.Id = matched[1]
 		d.Port = matched[2]
 		ui, err := strconv.ParseUint(matched[3], 10, 32)
@@ -211,7 +211,7 @@ func DriveParse(s string) (*Drive) {
 	} else {
 		panic("cannot determine drive type")
 	}
-	
+
 	return &d
 }
 
@@ -236,49 +236,59 @@ func (sep *StorageEnclosureProcessor) Parse(s string) {
 	sep.WWID = matched[4]
 }
 
-
 func main() {
 	bytes, err := ioutil.ReadAll(os.Stdin)
 	if err != nil {
 		panic(err)
 	}
-	
+
 	var currentController *Controller
 	var controllers []*Controller
-	
+
 	for lineNo, line := range strings.Split(string(bytes), "\n") {
 		if len(line) == 0 {
 			continue
 		}
-		
+
 		// count number of trailing spaces
 		var i int
-		for i=0;i<len(line);i++ {
+		for i = 0; i < len(line); i++ {
 			if line[i] != ' ' {
 				break
 			}
 		}
-		
-		switch (i) {
-			case 0:
-				currentController = ControllerParse(line[i:])
-				controllers = append(controllers, currentController)
-				break
-			case 3:
-				if strings.HasPrefix(line[i:], "SEP") {
-					currentController.SEP.Parse(line[i:])
-				} else {
-					currentController.Add(ArrayParse(line[i:]))
-				}
-			case 6:
-				currentController.CurrentArray.Add(DriveParse(line[i:]))
-				break
-			default:
-				panic(fmt.Sprintf("cannot parse line %d with %d trailing spaces:%s", lineNo, i, line))
-				
+
+		switch i {
+		case 0:
+			currentController = ControllerParse(line[i:])
+
+			// create unassigned array
+			currentController.Arrays = []Array{
+				Array{
+					Id:   'U',
+					Type: "unassigned",
+				},
+			}
+
+			controllers = append(controllers, currentController)
+			break
+		case 3:
+			if strings.HasPrefix(line[i:], "SEP") {
+				currentController.SEP.Parse(line[i:])
+			} else if line[i:] == "unassigned" {
+				// already created for all controllers as currentController.Arrays[0]
+			} else {
+				currentController.Add(ArrayParse(line[i:]))
+			}
+		case 6:
+			currentController.CurrentArray.Add(DriveParse(line[i:]))
+			break
+		default:
+			panic(fmt.Sprintf("cannot parse line %d with %d trailing spaces:%s", lineNo, i, line))
+
 		}
 	}
-	
+
 	exitCode := 0
 	// check that status of each drive (logical or physical) is OK
 	for _, controller := range controllers {
@@ -292,6 +302,6 @@ func main() {
 			}
 		}
 	}
-	
+
 	os.Exit(exitCode)
 }
