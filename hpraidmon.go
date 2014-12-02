@@ -269,6 +269,7 @@ func main() {
 
 		switch i {
 		case 0:
+			// parse a controller line
 			currentController = ControllerParse(line[i:])
 
 			// create unassigned array
@@ -282,14 +283,19 @@ func main() {
 			controllers = append(controllers, currentController)
 			break
 		case 3:
+			// special line with SEP identifier
 			if strings.HasPrefix(line[i:], "SEP") {
 				currentController.SEP.Parse(line[i:])
 			} else if line[i:] == "unassigned" {
 				// already created for all controllers as currentController.Arrays[0]
+				// only set current array to point to the 'unassigned' array
+				currentController.CurrentArray = &currentController.Arrays[0]
 			} else {
+				// parse controller line and append
 				currentController.Add(ArrayParse(line[i:]))
 			}
 		case 6:
+			// add phyisical/logical drive
 			currentController.CurrentArray.Add(DriveParse(line[i:]))
 			break
 		default:
@@ -307,6 +313,11 @@ func main() {
 				if drive.Status != "OK" {
 					// print informational message about this drive
 					fmt.Fprintf(os.Stderr, "controller '%s', array '%s': drive '%s' status is %s\n", controller.Describe(), array.Describe(), drive.Describe(), drive.Status)
+
+					// never override a critical status with a warning status
+					if exitCode == STATE_CRITICAL {
+						continue
+					}
 
 					// failures on disks that are not assigned are non-critical
 					if array.Id == 'U' {
