@@ -29,6 +29,15 @@ import (
 	"strings"
 )
 
+// Nagios-compatible exit codes
+const (
+	STATE_OK        = 0
+	STATE_WARNING   = 1
+	STATE_CRITICAL  = 2
+	STATE_UNKNOWN   = 3
+	STATE_DEPENDENT = 4
+)
+
 type StorageEnclosureProcessor struct {
 	VendorId string
 	Model    string
@@ -289,7 +298,8 @@ func main() {
 		}
 	}
 
-	exitCode := 0
+	exitCode := STATE_OK
+
 	// check that status of each drive (logical or physical) is OK
 	for _, controller := range controllers {
 		for _, array := range controller.Arrays {
@@ -297,7 +307,19 @@ func main() {
 				if drive.Status != "OK" {
 					// print informational message about this drive
 					fmt.Fprintf(os.Stderr, "controller '%s', array '%s': drive '%s' status is %s\n", controller.Describe(), array.Describe(), drive.Describe(), drive.Status)
-					exitCode++
+
+					// failures on disks that are not assigned are non-critical
+					if array.Id == 'U' {
+						exitCode = STATE_WARNING
+					} else {
+						// for some specific failure states, consider them not (yet) critical
+						if drive.Status == "Predictive Failure" {
+							exitCode = STATE_WARNING
+						} else {
+							// disk is not unassigned and this is not a predictive failure
+							exitCode = STATE_CRITICAL
+						}
+					}
 				}
 			}
 		}
